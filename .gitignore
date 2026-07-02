@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.tmp/
+*.tgz
+*.log
+.DS_Store
+.lingxiao/
+.env
+.env.*
+!.env.example
+coverage/
+*.lcov
+.nyc_output/

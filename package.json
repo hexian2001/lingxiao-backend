@@ -1,0 +1,43 @@
+{
+  "name": "@lingxiao-office/backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "凌霄剑域后端 monorepo：@lingxiao-office/sdk（可复用引擎，不依赖 web-api）+ @lingxiao-office/web-api（HTTP/SSE/WS 服务层，依赖 sdk）",
+  "license": "MIT",
+  "author": "Lingxiao Office",
+  "homepage": "https://github.com/lingxiao-office/lingxiao-backend",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lingxiao-office/lingxiao-backend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lingxiao-office/lingxiao-backend/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "workspaces": [
+    "packages/sdk",
+    "packages/web-api",
+    "examples/pentest-agent"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace=@lingxiao-office/sdk && npm run build --workspace=@lingxiao-office/web-api",
+    "build:sdk": "npm run build --workspace=@lingxiao-office/sdk",
+    "build:web-api": "npm run build --workspace=@lingxiao-office/web-api",
+    "typecheck": "npm run typecheck --workspace=@lingxiao-office/sdk && npm run typecheck --workspace=@lingxiao-office/web-api",
+    "verify:layering": "node scripts/verify-layering.mjs",
+    "verify:package-consumption": "node scripts/verify-package-consumption.mjs",
+    "release:preflight": "node scripts/release-npm.mjs preflight",
+    "release:dry-run": "node scripts/release-npm.mjs dry-run"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    },
+    "esbuild": "0.28.1",
+    "traverse": "0.3.9",
+    "@jridgewell/trace-mapping": "^0.3.25"
+  }
+}

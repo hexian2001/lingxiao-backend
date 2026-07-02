@@ -1,0 +1,71 @@
+{
+  "name": "@lingxiao-office/web-api",
+  "version": "1.0.1",
+  "description": "凌霄剑域 Web API：基于 @lingxiao-office/sdk 的 HTTP/ACP/SSE/WebSocket 服务层，供各产品线通过 Web 协议消费后端引擎。",
+  "license": "MIT",
+  "keywords": ["agent", "llm", "ai", "api", "http", "fastify", "sse", "websocket", "lingxiao"],
+  "author": "Lingxiao Office",
+  "homepage": "https://github.com/lingxiao-office/lingxiao-backend",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lingxiao-office/lingxiao-backend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lingxiao-office/lingxiao-backend/issues"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./extension": {
+      "types": "./dist/web-server/ExtensionRegistry.d.ts",
+      "import": "./dist/web-server/ExtensionRegistry.js"
+    },
+    "./*": {
+      "types": "./dist/*",
+      "import": "./dist/*"
+    }
+  },
+  "bin": {
+    "lingxiao-web-api": "dist/bin.js"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/bin.js"
+  },
+  "dependencies": {
+    "@lingxiao-office/sdk": "*",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/static": "^9.1.1",
+    "@fastify/websocket": "^11.2.0",
+    "fastify": "^5.8.4",
+    "yaml": "^2.9.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "playwright": "^1.59.1",
+    "typescript": "^6.0.2"
+  }
+}

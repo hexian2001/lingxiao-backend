@@ -1,0 +1,616 @@
+import type { Browser, LaunchOptions } from 'playwright';
+import { existsSync } from 'fs';
+import { readFile } from 'fs/promises';
+import { execFileSync } from 'child_process';
+import { createRequire } from 'module';
+import { dirname, join } from 'path';
+import { config } from '../config.js';
+import { IS_WINDOWS, IS_MACOS, IS_LINUX, resolveCommandPath } from '../utils/platform.js';
+import { getScopedProxyFetch, resolveToolBrowserProxy, withToolProxyEnv } from './ProxyConfig.js';
+import { coreLogger } from './Log.js';
+
+// playwright 作为可选依赖（optionalDependencies）惰性加载：
+// 未安装时不阻塞 SDK 核心 import，仅在实际使用浏览器能力时抛出可读错误。
+// 使用 createRequire 同步加载，避免把同步调用链传染成 async。
+type PlaywrightChromium = typeof import('playwright')['chromium'];
+let _chromiumCache: PlaywrightChromium | null | undefined;
+function loadChromium(): PlaywrightChromium | null {
+  if (_chromiumCache !== undefined) return _chromiumCache;
+  try {
+    const req = createRequire(import.meta.url);
+    _chromiumCache = (req('playwright') as typeof import('playwright')).chromium;
+  } catch {
+    _chromiumCache = null;
+  }
+  return _chromiumCache;
+}
+function requireChromium(): PlaywrightChromium {
+  const c = loadChromium();
+  if (!c) {
+    throw new Error(
+      '[Browser] 可选依赖 "playwright" 未安装。浏览器相关能力（web fetch 深度渲染 / 截图 / 浏览器工具）需要它。\n' +
+      '请在宿主项目安装：npm install playwright && npx playwright install chromium',
+    );
+  }
+  return c;
+}
+
+export interface BrowserProxyConfig {
+  server: string;
+  username?: string;
+  password?: string;
+  bypass?: string;
+}
+
+export interface BrowserHealth {
+  platform: NodeJS.Platform;
+  playwrightVersion?: string;
+  expectedExecutablePath?: string;
+  resolvedExecutablePath?: string;
+  resolvedExecutableSource?: BrowserExecutableSource;
+  playwrightCliExists: boolean;
+  executableExists: boolean;
+  canLaunch?: boolean;
+  installCommand: string;
+  installDepsCommand?: string;
+  detectedCandidates: BrowserExecutableCandidate[];
+  diagnostics: string[];
+}
+
+export interface BrowserLaunchResult {
+  browser: Browser;
+  proxy?: BrowserProxyConfig;
+  executablePath?: string;
+  executableSource?: BrowserExecutableSource;
+}
+
+export type BrowserExecutableSource =
+  | 'settings.paths.chrome_path'
+  | `env.${string}`
+  | 'playwright'
+  | 'system.path'
+  | 'system.command';
+
+export interface BrowserExecutableCandidate {
+  source: BrowserExecutableSource;
+  path: string;
+  exists: boolean;
+}
+
+
+// 动态定位 playwright 包目录：用 require.resolve 而非写死 PACKAGE_ROOT/node_modules/playwright，
+// 以兼容 npm workspace 依赖提升、独立安装、全局安装等任意 node_modules 布局。
+// playwright 作为 optionalDependency，未安装时返回 null，调用方据此优雅降级。
+let _playwrightDirCache: string | null | undefined;
+function resolvePlaywrightDir(): string | null {
+  if (_playwrightDirCache !== undefined) return _playwrightDirCache;
+  try {
+    const req = createRequire(import.meta.url);
+    // 定位 playwright/package.json 再取其目录，不受 hoisting 影响。
+    _playwrightDirCache = dirname(req.resolve('playwright/package.json'));
+  } catch {
+    _playwrightDirCache = null;
+  }
+  return _playwrightDirCache;
+}
+
+// playwright CLI 入口路径；playwright 未安装时返回 null。
+function resolvePlaywrightCli(): string | null {
+  const dir = resolvePlaywrightDir();
+  return dir ? join(dir, 'cli.js') : null;
+}
+
+/**
+ * Chromium 启动参数。
+ * 保留项均为稳定性必需(root/容器无 sandbox 环境必须 --no-sandbox 系)或无害。
+ * 已删除的是「真人浏览器不会有」的强爬虫信号:--disable-web-security(绝不开启)、
+ * --disable-features=IsolateOrigins,site-per-process(关站点隔离)、--disable-background-networking
+ * (关后台网络)、--metrics-recording-only(关 UMA 上报)、--disable-software-rasterizer
+ * (与 --disable-gpu 的软件渲染路径自相矛盾)。真正的自动化指纹(navigator.webdriver 等)
+ * 由 BrowserStealth.addInitScript 在页面层擦除,不依赖启动 flag。
+ */
+const DEFAULT_BROWSER_ARGS = [
+  '--disable-blink-features=AutomationControlled',
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+  '--disable-extensions',
+  '--disable-default-apps',
+  '--disable-sync',
+  '--disable-translate',
+  '--mute-audio',
+  '--no-first-run',
+  '--remote-debugging-port=0',
+];
+
+let cachedChromePath: string | undefined | null = null;
+let cachedChromeSource: BrowserExecutableSource | undefined;
+let installPromise: Promise<void> | null = null;
+
+export function isBrowserSkipped(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.LINGXIAO_SKIP_BROWSER === '1' || env.LINGXIAO_SKIP_BROWSER?.toLowerCase() === 'true';
+}
+
+export function buildPlaywrightInstallCommands(options?: {
+  nodeExecPath?: string;
+  playwrightCli?: string;
+  platform?: NodeJS.Platform;
+}): { installCommand: string; installDepsCommand?: string } {
+  const nodeExecPath = options?.nodeExecPath ?? process.execPath;
+  const playwrightCli = options?.playwrightCli ?? resolvePlaywrightCli() ?? 'playwright';
+  const targetPlatform = options?.platform ?? process.platform;
+  const nodeCommand = shellQuote(nodeExecPath);
+  const playwrightCommand = shellQuote(playwrightCli);
+  return {
+    installCommand: `${nodeCommand} ${playwrightCommand} install chromium`,
+    installDepsCommand: targetPlatform === 'linux' ? `${nodeCommand} ${playwrightCommand} install-deps chromium` : undefined,
+  };
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value)) return value;
+  return JSON.stringify(value);
+}
+
+export function createBrowserMissingDiagnostics(executableExists: boolean, playwrightCliExists = true): string[] {
+  const diagnostics: string[] = [];
+  if (!executableExists) diagnostics.push('No Chromium-family browser executable was detected.');
+  if (!playwrightCliExists) diagnostics.push(`Local Playwright CLI is missing: ${resolvePlaywrightCli() ?? 'playwright (optional dependency not installed)'}`);
+  return diagnostics;
+}
+
+export function createBrowserSkippedError(): Error {
+  return new Error('Browser tools are disabled because LINGXIAO_SKIP_BROWSER=1. Unset it to enable browser automation.');
+}
+
+export function readBrowserDaemonFlag(): boolean {
+  const env = (process.env.LINGXIAO_BROWSER_DAEMON || '').toLowerCase();
+  if (env === '1' || env === 'true' || env === 'yes') return true;
+  const cfg = (config as unknown as { browser?: { daemon?: boolean } }).browser?.daemon;
+  return !!cfg;
+}
+
+export function readBrowserIdleMs(defaultMs: number): number {
+  const env = process.env.LINGXIAO_BROWSER_IDLE_MS;
+  if (env && /^\d+$/.test(env)) return Math.max(10_000, parseInt(env, 10));
+  const cfg = (config as unknown as { browser?: { idle_ms?: number } }).browser?.idle_ms;
+  if (typeof cfg === 'number' && cfg > 0) return Math.max(10_000, cfg);
+  return defaultMs;
+}
+
+function readEnvProxy(): BrowserProxyConfig | undefined {
+  const raw = process.env.LINGXIAO_BROWSER_PROXY
+    || process.env.HTTPS_PROXY
+    || process.env.https_proxy
+    || process.env.HTTP_PROXY
+    || process.env.http_proxy;
+  if (!raw) return undefined;
+  try {
+    const url = new URL(raw);
+    const cfg: BrowserProxyConfig = { server: `${url.protocol}//${url.host}` };
+    if (url.username) cfg.username = decodeURIComponent(url.username);
+    if (url.password) cfg.password = decodeURIComponent(url.password);
+    if (process.env.NO_PROXY || process.env.no_proxy) {
+      cfg.bypass = process.env.NO_PROXY || process.env.no_proxy;
+    }
+    return cfg;
+  } catch {/* expected: fallback to default */
+    return { server: raw };
+  }
+}
+
+function readConfigProxy(): BrowserProxyConfig | undefined {
+  const cfg = (config as unknown as { browser?: { proxy?: BrowserProxyConfig } }).browser?.proxy;
+  if (!cfg || !cfg.server) return undefined;
+  return cfg;
+}
+
+export function resolveBrowserProxy(): BrowserProxyConfig | undefined {
+  return resolveToolBrowserProxy() ?? readConfigProxy() ?? readEnvProxy();
+}
+
+export function browserProxyChanged(prev: BrowserProxyConfig | undefined, next: BrowserProxyConfig | undefined): boolean {
+  if (!prev && !next) return false;
+  if (!prev || !next) return true;
+  return prev.server !== next.server
+    || (prev.username || '') !== (next.username || '')
+    || (prev.password || '') !== (next.password || '')
+    || (prev.bypass || '') !== (next.bypass || '');
+}
+
+function expectedChromeExecutable(): string | undefined {
+  try {
+    const chromium = loadChromium();
+    return chromium ? chromium.executablePath() : undefined;
+  } catch {/* expected: resource not available */
+    return undefined;
+  }
+}
+
+function normalizeConfiguredPath(path: string | undefined): string | undefined {
+  const trimmed = path?.trim();
+  return trimmed || undefined;
+}
+
+function whichOnPath(cmd: string): string | undefined {
+  try {
+    const first = resolveCommandPath(cmd);
+    if (first && existsSync(first)) return first;
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
+function systemChromiumCandidates(): string[] {
+  if (IS_WINDOWS) {
+    const env = process.env;
+    const paths: string[] = [];
+    const programDirs = [
+      env.LOCALAPPDATA,
+      env.ProgramFiles,
+      env['ProgramFiles(x86)'],
+    ].filter((p): p is string => Boolean(p));
+    for (const base of programDirs) {
+      paths.push(
+        join(base, 'Google', 'Chrome', 'Application', 'chrome.exe'),
+        join(base, 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
+        join(base, 'BraveSoftware', 'Brave-Browser', 'Application', 'brave.exe'),
+        join(base, 'Chromium', 'Application', 'chrome.exe'),
+      );
+    }
+    return paths;
+  }
+  if (IS_MACOS) {
+    return [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Chromium.app/Contents/MacOS/Chromium',
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+      '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+    ];
+  }
+  if (IS_LINUX) {
+    return [
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/microsoft-edge',
+      '/usr/bin/microsoft-edge-stable',
+      '/usr/bin/brave-browser',
+      '/snap/bin/chromium',
+      '/snap/bin/google-chrome',
+    ];
+  }
+  return [];
+}
+
+function systemChromiumCommandCandidates(): string[] {
+  if (IS_WINDOWS) {
+    return ['chrome.exe', 'msedge.exe', 'brave.exe'];
+  }
+  return [
+    'google-chrome',
+    'google-chrome-stable',
+    'chromium',
+    'chromium-browser',
+    'microsoft-edge',
+    'microsoft-edge-stable',
+    'brave-browser',
+  ];
+}
+
+function detectChromeExecutable(): BrowserExecutableCandidate | undefined {
+  if (cachedChromePath !== null) {
+    return cachedChromePath && cachedChromeSource
+      ? { source: cachedChromeSource, path: cachedChromePath, exists: true }
+      : undefined;
+  }
+
+  const userPath = normalizeConfiguredPath(config.paths?.chrome_path);
+  if (userPath && existsSync(userPath)) {
+    cachedChromePath = userPath;
+    cachedChromeSource = 'settings.paths.chrome_path';
+    return { source: cachedChromeSource, path: userPath, exists: true };
+  }
+
+  for (const envKey of ['LINGXIAO_CHROME_PATH', 'CHROME_PATH', 'CHROME_BIN', 'PUPPETEER_EXECUTABLE_PATH'] as const) {
+    const val = normalizeConfiguredPath(process.env[envKey]);
+    if (val && existsSync(val)) {
+      cachedChromePath = val;
+      cachedChromeSource = `env.${envKey}`;
+      return { source: cachedChromeSource, path: val, exists: true };
+    }
+  }
+
+  const playwrightPath = expectedChromeExecutable();
+  if (playwrightPath && existsSync(playwrightPath)) {
+    cachedChromePath = playwrightPath;
+    cachedChromeSource = 'playwright';
+    return { source: cachedChromeSource, path: playwrightPath, exists: true };
+  }
+
+  for (const candidate of systemChromiumCandidates()) {
+    if (existsSync(candidate)) {
+      cachedChromePath = candidate;
+      cachedChromeSource = 'system.path';
+      return { source: cachedChromeSource, path: candidate, exists: true };
+    }
+  }
+
+  for (const cmd of systemChromiumCommandCandidates()) {
+    const found = whichOnPath(cmd);
+    if (found) {
+      cachedChromePath = found;
+      cachedChromeSource = 'system.command';
+      return { source: cachedChromeSource, path: found, exists: true };
+    }
+  }
+
+  cachedChromePath = undefined;
+  cachedChromeSource = undefined;
+  return undefined;
+}
+
+function findChromeExecutable(): string | undefined {
+  return detectChromeExecutable()?.path;
+}
+
+function listBrowserExecutableCandidates(): BrowserExecutableCandidate[] {
+  const candidates: BrowserExecutableCandidate[] = [];
+  const add = (source: BrowserExecutableSource, path: string | undefined) => {
+    const normalized = normalizeConfiguredPath(path);
+    if (!normalized) return;
+    candidates.push({ source, path: normalized, exists: existsSync(normalized) });
+  };
+
+  add('settings.paths.chrome_path', config.paths?.chrome_path);
+  for (const envKey of ['LINGXIAO_CHROME_PATH', 'CHROME_PATH', 'CHROME_BIN', 'PUPPETEER_EXECUTABLE_PATH'] as const) {
+    add(`env.${envKey}`, process.env[envKey]);
+  }
+  add('playwright', expectedChromeExecutable());
+  for (const path of systemChromiumCandidates()) add('system.path', path);
+  for (const cmd of systemChromiumCommandCandidates()) add('system.command', whichOnPath(cmd));
+
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    const key = `${candidate.source}:${candidate.path}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function _resetChromePathCacheForTesting(): void {
+  cachedChromePath = null;
+  cachedChromeSource = undefined;
+}
+
+async function probeReachable(url: string, timeoutMs: number): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const scopedFetch = getScopedProxyFetch('tools') || fetch;
+      const res = await scopedFetch(url, { method: 'HEAD', signal: ctrl.signal });
+      return res.status >= 200 && res.status < 600;
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {/* expected: operation may fail */
+    return false;
+  }
+}
+
+async function resolveDownloadMirrors(): Promise<Array<{ label: string; host: string; maxAttempts: number }>> {
+  const userHost = process.env.PLAYWRIGHT_DOWNLOAD_HOST;
+  if (userHost) {
+    return [{ label: 'user configured', host: userHost, maxAttempts: 3 }];
+  }
+
+  const regionPref = (process.env.LINGXIAO_BROWSER_REGION || '').toLowerCase().trim();
+  const officialMirror = { label: 'Playwright CDN', host: 'https://cdn.playwright.dev', maxAttempts: 2 };
+  const cnMirror = { label: 'npmmirror China mirror', host: 'https://npmmirror.com/mirrors/playwright', maxAttempts: 3 };
+
+  if (regionPref === 'cn' || regionPref === 'china') {
+    return [cnMirror, officialMirror];
+  }
+  if (regionPref === 'global' || regionPref === 'official') {
+    return [officialMirror, cnMirror];
+  }
+
+  const officialReachable = await probeReachable('https://cdn.playwright.dev', 1500);
+  return officialReachable ? [officialMirror, cnMirror] : [cnMirror, officialMirror];
+}
+
+function isNetworkError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  return /ECONNRESET|ETIMEDOUT|ENETUNREACH|ENOTFOUND|EAI_AGAIN|socket hang up|TLS|network|fetch failed|429|503/i.test(msg);
+}
+
+async function buildDownloadFailureError(rawErr: unknown, isNetwork: boolean): Promise<Error> {
+  const cause = rawErr instanceof Error ? rawErr.message : String(rawErr);
+  const commands = buildPlaywrightInstallCommands();
+  const depsHint = commands.installDepsCommand
+    ? `\n  - If Linux system dependencies are missing: ${commands.installDepsCommand}`
+    : '';
+
+  const guidance: string[] = [];
+  guidance.push(`Chromium browser setup failed: ${cause}`);
+  if (isNetwork) {
+    guidance.push('Reason: Playwright browser download source is unreachable after trying the official CDN and npmmirror.');
+  }
+  guidance.push('');
+  guidance.push('Recovery options:');
+  guidance.push('  1. Install Chrome / Chromium / Edge / Brave with the OS package manager; Lingxiao will detect it automatically.');
+  guidance.push('     - Linux: apt install chromium-browser, apt install chromium, or snap install chromium');
+  guidance.push('     - macOS: brew install --cask google-chrome');
+  guidance.push('     - Windows: install Google Chrome or Microsoft Edge');
+  guidance.push('  2. Set an explicit executable path: LINGXIAO_CHROME_PATH=/path/to/chrome or settings paths.chrome_path.');
+  guidance.push('  3. Retry with a region hint: LINGXIAO_BROWSER_REGION=cn or PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright');
+  guidance.push(`  4. Install Playwright Chromium manually: ${commands.installCommand}${depsHint}`);
+  guidance.push('  5. Disable browser runtime temporarily: LINGXIAO_SKIP_BROWSER=1');
+  return new Error(guidance.join('\n'));
+}
+
+async function downloadBrowser(): Promise<void> {
+  const enumeratedSystem = systemChromiumCandidates().filter((p) => existsSync(p));
+  const sysPathHits = systemChromiumCommandCandidates().map(whichOnPath).filter(Boolean) as string[];
+  const allSystem = [...new Set([...enumeratedSystem, ...sysPathHits])];
+
+  if (allSystem.length > 0) {
+    coreLogger.info(`[Browser] Detected installed Chromium-family browser, skipping download: ${allSystem.join(', ')}`);
+    _resetChromePathCacheForTesting();
+    return;
+  }
+
+  coreLogger.info('[Browser] Chromium browser not found. Downloading with local Playwright runtime...');
+
+  const playwrightCli = resolvePlaywrightCli();
+  if (!playwrightCli || !existsSync(playwrightCli)) {
+    throw await buildDownloadFailureError(new Error(`Local Playwright CLI not found: ${playwrightCli ?? 'playwright (optional dependency not installed; run: npm install playwright)'}`), false);
+  }
+
+  const mirrors = await resolveDownloadMirrors();
+  let lastErr: unknown;
+
+  for (const mirror of mirrors) {
+    coreLogger.info(`[Browser] Using download source: ${mirror.label} (${mirror.host})`);
+    const env: NodeJS.ProcessEnv = withToolProxyEnv({ ...process.env });
+    if (mirror.host) env.PLAYWRIGHT_DOWNLOAD_HOST = mirror.host;
+    else delete env.PLAYWRIGHT_DOWNLOAD_HOST;
+
+    for (let attempt = 1; attempt <= mirror.maxAttempts; attempt++) {
+      try {
+        execFileSync(process.execPath, [playwrightCli, 'install', 'chromium'], {
+          stdio: 'inherit',
+          timeout: 300_000,
+          env,
+          windowsHide: IS_WINDOWS,
+        });
+        coreLogger.info('[Browser] Download complete.');
+        _resetChromePathCacheForTesting();
+        return;
+      } catch (e) {
+        lastErr = e;
+        const network = isNetworkError(e);
+        if (attempt < mirror.maxAttempts && network) {
+          const wait = Math.min(2000 * 2 ** (attempt - 1), 10000);
+          coreLogger.warn(`[Browser] ${mirror.label} attempt ${attempt}/${mirror.maxAttempts} failed; retrying in ${wait}ms...`);
+          await new Promise((r) => setTimeout(r, wait));
+          continue;
+        }
+        break;
+      }
+    }
+    coreLogger.warn(`[Browser] ${mirror.label} failed; trying next source...`);
+  }
+
+  throw await buildDownloadFailureError(lastErr, true);
+}
+
+export async function ensureBrowserInstalled(): Promise<void> {
+  if (isBrowserSkipped()) throw createBrowserSkippedError();
+  if (findChromeExecutable()) return;
+  if (installPromise) return installPromise;
+
+  installPromise = downloadBrowser();
+  try {
+    await installPromise;
+  } finally {
+    installPromise = null;
+  }
+}
+
+export async function checkBrowserHealth(options?: { launch?: boolean }): Promise<BrowserHealth> {
+  const expectedExecutablePath = expectedChromeExecutable();
+  const detected = detectChromeExecutable();
+  const resolvedExecutablePath = detected?.path;
+  const _pwCli = resolvePlaywrightCli();
+  const playwrightCliExists = _pwCli ? existsSync(_pwCli) : false;
+  const executableExists = Boolean(resolvedExecutablePath || (expectedExecutablePath && existsSync(expectedExecutablePath)));
+  const diagnostics: string[] = createBrowserMissingDiagnostics(executableExists, playwrightCliExists);
+  if (isBrowserSkipped()) diagnostics.push('Browser tools are disabled by LINGXIAO_SKIP_BROWSER.');
+
+  let playwrightVersion: string | undefined;
+  try {
+    const _pwDir = resolvePlaywrightDir();
+    const pkg = JSON.parse(await readFile(join(_pwDir ?? '', 'package.json'), 'utf8'));
+    playwrightVersion = pkg.version;
+  } catch {/* swallowed: unhandled error */
+    diagnostics.push('Unable to read local Playwright package version.');
+  }
+
+  let canLaunch: boolean | undefined;
+  if (options?.launch && !isBrowserSkipped()) {
+    try {
+      const browser = await launchManagedChromium({ log: false });
+      await browser.browser.close();
+      canLaunch = true;
+    } catch (error) {
+      canLaunch = false;
+      diagnostics.push(`Launch failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return {
+    platform: process.platform,
+    playwrightVersion,
+    expectedExecutablePath,
+    resolvedExecutablePath,
+    resolvedExecutableSource: detected?.source,
+    playwrightCliExists,
+    executableExists,
+    canLaunch,
+    ...buildPlaywrightInstallCommands(),
+    detectedCandidates: listBrowserExecutableCandidates(),
+    diagnostics,
+  };
+}
+
+function buildBrowserLaunchOptions(options?: {
+  proxy?: BrowserProxyConfig;
+  extraArgs?: string[];
+}): LaunchOptions {
+  const chromePath = detectChromeExecutable()?.path;
+  const launchOptions: LaunchOptions = {
+    headless: true,
+    args: [...DEFAULT_BROWSER_ARGS, ...(options?.extraArgs || [])],
+    ...(options?.proxy ? { proxy: options.proxy } : {}),
+  };
+  if (chromePath) launchOptions.executablePath = chromePath;
+  return launchOptions;
+}
+
+export async function launchManagedChromium(options?: {
+  proxy?: BrowserProxyConfig;
+  extraArgs?: string[];
+  log?: boolean;
+}): Promise<BrowserLaunchResult> {
+  await ensureBrowserInstalled();
+
+  const proxy = options?.proxy ?? resolveBrowserProxy();
+  const detected = detectChromeExecutable();
+  const executablePath = detected?.path;
+  const launchOptions = buildBrowserLaunchOptions({ proxy, extraArgs: options?.extraArgs });
+  const log = options?.log !== false;
+
+  if (log) {
+    if (executablePath) coreLogger.info(`[Browser] Using Chromium executable: ${executablePath}`);
+    else coreLogger.info('[Browser] No executablePath resolved; letting Playwright use its default browser resolution.');
+    if (proxy) coreLogger.info(`[Browser] Proxy enabled: ${proxy.server}${proxy.username ? ' (with auth)' : ''}`);
+  }
+
+  try {
+    const browser = await requireChromium().launch(launchOptions);
+    return { browser, proxy, executablePath, executableSource: detected?.source };
+  } catch (error) {
+    const health = await checkBrowserHealth({ launch: false }).catch(() => undefined);
+    const depsHint = process.platform === 'linux' && health?.installDepsCommand
+      ? `\nIf Chromium is installed but cannot launch, install system dependencies: ${health.installDepsCommand}`
+      : '';
+    throw new Error(`${error instanceof Error ? error.message : String(error)}${health ? `\nInstall command: ${health.installCommand}` : ''}${depsHint}`);
+  }
+}

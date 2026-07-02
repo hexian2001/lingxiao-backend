@@ -1,0 +1,116 @@
+{
+  "name": "@lingxiao-office/sdk",
+  "version": "1.0.1",
+  "description": "凌霄剑域可复用后端引擎 SDK：编排内核、Agent 运行时、LLM 客户端、工具系统、记忆系统。不依赖 Web API，可直接嵌入任意产品线。",
+  "license": "MIT",
+  "keywords": ["agent", "llm", "ai", "sdk", "orchestration", "multi-agent", "tool-calling", "framework", "lingxiao"],
+  "author": "Lingxiao Office",
+  "homepage": "https://github.com/lingxiao-office/lingxiao-backend",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lingxiao-office/lingxiao-backend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lingxiao-office/lingxiao-backend/issues"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*",
+      "import": "./dist/*"
+    }
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/amazon-bedrock": "^3.0.101",
+    "@ai-sdk/anthropic": "^2.0.81",
+    "@ai-sdk/google": "^2.0.74",
+    "@ai-sdk/openai": "^2.0.106",
+    "@ai-sdk/provider": "^2.0.0",
+    "@ai-sdk/provider-utils": "^3.0.0",
+    "@anthropic-ai/sdk": "^0.82.0",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/static": "^9.1.1",
+    "@fastify/websocket": "^11.2.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "acorn": "^8.16.0",
+    "ai": "^5.0.198",
+    "ajv": "^8.17.1",
+    "chokidar": "^5.0.0",
+    "fastify": "^5.8.4",
+    "glob": "^13.0.6",
+    "js-tiktoken": "^1.0.21",
+    "node-fetch": "^3.3.2",
+    "openai": "^6.33.0",
+    "proxy-agent": "^8.0.1",
+    "simple-git": "^3.36.0",
+    "string-width": "^8.2.0",
+    "typescript": "^6.0.2",
+    "undici": "^8.0.2",
+    "yaml": "^2.9.0",
+    "zod": "^4.3.6"
+  },
+  "optionalDependencies": {
+    "@ast-grep/lang-c": "^0.0.6",
+    "@ast-grep/lang-cpp": "^0.0.6",
+    "@ast-grep/lang-go": "^0.0.6",
+    "@ast-grep/lang-java": "^0.0.7",
+    "@ast-grep/lang-python": "^0.0.6",
+    "@ast-grep/lang-ruby": "^0.0.7",
+    "@ast-grep/lang-rust": "^0.0.7",
+    "@ast-grep/napi": "^0.42.2",
+    "@langfuse/client": "^5.5.3",
+    "@langfuse/otel": "^5.5.3",
+    "@langfuse/tracing": "^5.5.3",
+    "@lydell/node-pty": "1.2.0-beta.10",
+    "@lydell/node-pty-darwin-arm64": "1.2.0-beta.10",
+    "@lydell/node-pty-darwin-x64": "1.2.0-beta.10",
+    "@lydell/node-pty-linux-arm64": "1.2.0-beta.10",
+    "@lydell/node-pty-linux-x64": "1.2.0-beta.10",
+    "@lydell/node-pty-win32-arm64": "1.2.0-beta.10",
+    "@lydell/node-pty-win32-x64": "1.2.0-beta.10",
+    "@nodesecure/js-x-ray": "^11.1.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/sdk-node": "^0.219.0",
+    "@slidev/cli": "^52.15.2",
+    "@xterm/headless": "5.5.0",
+    "docx": "^9.7.1",
+    "exceljs": "^4.4.0",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.12.0",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.18.0",
+    "playwright": "^1.59.1",
+    "pptxgenjs": "^4.0.1",
+    "sharp": "^0.34.5",
+    "skia-canvas": "^3.0.8",
+    "tesseract.js": "^7.0.0",
+    "unzipper": "^0.12.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/pdfkit": "^0.17.6"
+  }
+}
