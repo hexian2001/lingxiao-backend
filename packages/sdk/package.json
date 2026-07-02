@@ -1,6 +1,6 @@
 {
   "name": "@lingxiao-office/sdk",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "凌霄剑域可复用后端引擎 SDK：编排内核、Agent 运行时、LLM 客户端、工具系统、记忆系统。不依赖 Web API，可直接嵌入任意产品线。",
   "license": "MIT",
   "keywords": [
