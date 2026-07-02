@@ -76,10 +76,10 @@ import { AgentCore } from '@lingxiao-office/sdk/agents/runtime/AgentCore.js';
 
 ## 文档
 
-- [完整文档](https://github.com/hexian2001/lingxiao-office-sdk/tree/main/docs)
-- [API Reference](https://github.com/hexian2001/lingxiao-office-sdk/blob/main/docs/api-reference.md)
-- [Team / Blackboard / DAG](https://github.com/hexian2001/lingxiao-office-sdk/blob/main/docs/team-blackboard-dag.md)
-- [Pentest Agent 教学项目](https://github.com/hexian2001/lingxiao-office-sdk/tree/main/examples/pentest-agent)
+- [完整文档](https://github.com/hexian2001/lingxiao-backend/tree/main/docs)
+- [API Reference](https://github.com/hexian2001/lingxiao-backend/blob/main/docs/api-reference.md)
+- [Team / Blackboard / DAG](https://github.com/hexian2001/lingxiao-backend/blob/main/docs/team-blackboard-dag.md)
+- [Pentest Agent 教学项目](https://github.com/hexian2001/lingxiao-backend/tree/main/examples/pentest-agent)
 
 ## License
 

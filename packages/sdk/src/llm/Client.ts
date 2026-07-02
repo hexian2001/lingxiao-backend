@@ -83,13 +83,27 @@ export class LLMClientManager implements ContentGenerator {
   /**
    * 重新从 ModelManager 获取最新模型配置。
    * 当 session 热切换模型时必须同步切换 provider/baseUrl/apiKey。
+   *
+   * 宽容解析：传入的 model 可能是 snapshot id、model_providers 中的 id、
+   * 或 runtime snapshot 的 modelId（如 createLLMClientFromConfig 场景）。
+   * 如果传入的 model 与当前已绑定配置一致（snapshot 的 modelId），
+   * 不需要重新查 ModelManager。
    */
   private refreshModelConfig(model?: string): void {
     const targetModelId = model || this.modelId;
+
+    // 如果传入的 model 等于当前 modelId，无需切换
+    if (targetModelId === this.modelId) return;
+
+    // 如果传入的 model 等于当前配置的真实模型名（RuntimeModelSnapshot.modelId），
+    // 说明是同一个模型，无需切换
+    const currentModelId = (this.modelConfig as { modelId?: string }).modelId;
+    if (currentModelId && targetModelId === currentModelId) return;
+
+    // 真正切换模型：从 ModelManager 查找
     const latest = getModelManager().getModelByIdStrict(targetModelId);
     const latestProvider = latest.provider as 'openai' | 'anthropic';
     if (
-      targetModelId !== this.modelId ||
       latestProvider !== this.provider ||
       latest.model !== this.modelConfig.model ||
       latest.apiKey !== this.modelConfig.apiKey ||
@@ -99,20 +113,35 @@ export class LLMClientManager implements ContentGenerator {
       this.modelConfig = latest;
       this.provider = latestProvider;
       this.generator = this.createGenerator();
+    } else {
+      this.modelId = targetModelId;
     }
   }
 
   /**
    * 解析实际发送给 API 的模型名。
+   *
+   * 宽容解析：传入的 model 可能是 snapshot id、model_providers 中的 id、
+   * 或 runtime snapshot 的 modelId（如 createLLMClientFromConfig 场景）。
    */
   private resolveApiModelName(model?: string): string {
     const targetModelId = model || this.modelId;
-    // 当前 modelConfig：优先 model（ModelProviderConfig），再 modelId（RuntimeModelSnapshot 真实模型名）。
+
+    // 如果传入的 model 等于当前 modelId，用当前配置
     if (targetModelId === this.modelId) {
       const current = this.modelConfig as { model?: string; modelId?: string };
       if (current.model) return current.model;
       if (current.modelId) return current.modelId;
     }
+
+    // 如果传入的 model 等于当前配置的真实模型名（RuntimeModelSnapshot.modelId），
+    // 直接返回它（这就是要发给 API 的模型名）
+    const currentModelId = (this.modelConfig as { modelId?: string }).modelId;
+    if (currentModelId && targetModelId === currentModelId) {
+      return currentModelId;
+    }
+
+    // 真正切换模型：从 ModelManager 查找
     const config = getModelManager().getModelByIdStrict(targetModelId) as { model?: string; modelId?: string };
     // ModelProviderConfig 用 model 字段；RuntimeModelSnapshot 用 modelId 存实际发送给 API 的模型名。
     if (config.model) return config.model;

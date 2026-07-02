@@ -87,6 +87,13 @@ export interface CreateAgentLoopOptions {
   serializeToolResult?: (event: { result: ToolResult; toolCall: ToolCall; args: unknown; round: number }) => string;
   /** Safe default cap for serialized tool-result messages. Set to false to disable. */
   maxToolResultChars?: number | false;
+  /**
+   * When true, each LLM call uses generateContentWithCallbacks (streaming)
+   * instead of generateContent (non-streaming). Use this when your gateway
+   * only supports SSE/streaming responses (e.g. some local proxies).
+   * @default false
+   */
+  stream?: boolean;
 }
 
 export interface AgentLoopResult {
@@ -154,13 +161,21 @@ export function createAgentLoop(options: CreateAgentLoopOptions): AgentLoop {
           }
 
           const round = rounds + 1;
-          const response = await options.llm.generateContent({
-            messages,
-            model: options.model,
-            tools,
-            maxTokens: options.maxTokens,
-            signal: options.signal,
-          });
+          const response = options.stream
+            ? await options.llm.generateContentWithCallbacks({
+                messages,
+                model: options.model,
+                tools,
+                maxTokens: options.maxTokens,
+                signal: options.signal,
+              })
+            : await options.llm.generateContent({
+                messages,
+                model: options.model,
+                tools,
+                maxTokens: options.maxTokens,
+                signal: options.signal,
+              });
           lastResponse = response;
           rounds = round;
 

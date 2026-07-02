@@ -1,6 +1,6 @@
 {
   "name": "@lingxiao-office/web-api",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "凌霄剑域 Web API：基于 @lingxiao-office/sdk 的 HTTP/ACP/SSE/WebSocket 服务层，供各产品线通过 Web 协议消费后端引擎。",
   "license": "MIT",
   "keywords": [
