@@ -1,17 +1,27 @@
 {
   "name": "@lingxiao-office/web-api",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "凌霄剑域 Web API：基于 @lingxiao-office/sdk 的 HTTP/ACP/SSE/WebSocket 服务层，供各产品线通过 Web 协议消费后端引擎。",
   "license": "MIT",
-  "keywords": ["agent", "llm", "ai", "api", "http", "fastify", "sse", "websocket", "lingxiao"],
+  "keywords": [
+    "agent",
+    "llm",
+    "ai",
+    "api",
+    "http",
+    "fastify",
+    "sse",
+    "websocket",
+    "lingxiao"
+  ],
   "author": "Lingxiao Office",
-  "homepage": "https://github.com/lingxiao-office/lingxiao-backend",
+  "homepage": "https://github.com/hexian2001/lingxiao-office-web-api",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lingxiao-office/lingxiao-backend.git"
+    "url": "git+https://github.com/hexian2001/lingxiao-office-web-api.git"
   },
   "bugs": {
-    "url": "https://github.com/lingxiao-office/lingxiao-backend/issues"
+    "url": "https://github.com/hexian2001/lingxiao-office-web-api/issues"
   },
   "type": "module",
   "main": "dist/index.js",

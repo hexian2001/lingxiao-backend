@@ -106,7 +106,7 @@ try {
 
   const smokeFile = path.join(consumerDir, 'smoke.mjs');
   writeFileSync(smokeFile, `
-import { contentToPlainText, createAgentLoop, createLLMClient, createToolRegistry } from '@lingxiao-office/sdk';
+import { contentToPlainText, createAgentLoop, createLLMClient, createLLMClientFromConfig, createToolRegistry } from '@lingxiao-office/sdk';
 import Fastify from 'fastify';
 import * as webApi from '@lingxiao-office/web-api';
 import * as webApiExtension from '@lingxiao-office/web-api/extension';
@@ -118,6 +118,17 @@ check(typeof contentToPlainText === 'function', 'sdk.contentToPlainText export')
 check(contentToPlainText([{ type: 'text', text: 'ok' }]) === 'ok', 'sdk.contentToPlainText behavior');
 check(typeof createAgentLoop === 'function', 'sdk.createAgentLoop export');
 check(typeof createLLMClient === 'function', 'sdk.createLLMClient export');
+check(typeof createLLMClientFromConfig === 'function', 'sdk.createLLMClientFromConfig export');
+
+// Verify createLLMClientFromConfig actually works (creates a client without throwing)
+const testLlm = createLLMClientFromConfig({
+  apiKey: 'sk-test-fake',
+  baseUrl: 'https://api.anthropic.com',
+  model: 'claude-opus-4-8',
+  provider: 'anthropic',
+});
+check(typeof testLlm.generateContent === 'function', 'sdk.createLLMClientFromConfig returns client with generateContent');
+
 check(typeof createToolRegistry === 'function', 'sdk.createToolRegistry export');
 
 check(typeof webApi.createServer === 'function', 'web-api.createServer export');
@@ -166,6 +177,7 @@ console.log(JSON.stringify({
     contentToPlainText: typeof contentToPlainText,
     createAgentLoop: typeof createAgentLoop,
     createLLMClient: typeof createLLMClient,
+    createLLMClientFromConfig: typeof createLLMClientFromConfig,
     createToolRegistry: typeof createToolRegistry,
   },
   webApi: {

@@ -26,7 +26,8 @@
 
 | 能力 | 入口 | 干什么 |
 |---|---|---|
-| LLM 客户端 | `createLLMClient()` / `createRuntimeSnapshot()` | 接任意 Anthropic/OpenAI 兼容端点，内置 thinking、重试、熔断、token 计数 |
+| LLM 客户端 | `createLLMClientFromConfig({ apiKey, baseUrl, model })` | 一行接上任意 Anthropic/OpenAI 兼容端点，内置 thinking、重试、熔断、token 计数 |
+| LLM 客户端（高级） | `createLLMClient(snapshotId)` | 通过 ModelManager 创建 runtime snapshot，适合动态模型管理 |
 | 工具系统 | `createToolRegistry()` | 一次性拿到 50+ 内置工具（shell/http/file/code_search/memory/...），也支持继承 `Tool` 自定义 |
 | Agent 循环 | `createAgentLoop()` | 封装 reason → act → observe 闭环，自动处理 tool_calls、工具执行和结果回灌 |
 | BaseAgent | `BaseAgent` 类 | 需要完整生命周期管理时继承它（含 maxIterations / 超时 / 事件） |
@@ -66,15 +67,15 @@
 ## 快速开始
 
 ```typescript
-import { createAgentLoop, createLLMClient, createToolRegistry } from '@lingxiao-office/sdk';
-import { getModelManager } from '@lingxiao-office/sdk/config/ModelManager.js';
+import { createAgentLoop, createLLMClientFromConfig, createToolRegistry } from '@lingxiao-office/sdk';
 
-// ① 接上 LLM
-const snap = getModelManager().createRuntimeSnapshot('anthropic', 'claude-opus-4-8', {
+// ① 接上 LLM — 直接传 apiKey / baseUrl / model，无需配置文件或 ModelManager
+const llm = createLLMClientFromConfig({
   apiKey: 'sk-...',
   baseUrl: 'https://api.anthropic.com',
+  model: 'claude-opus-4-8',
+  provider: 'anthropic', // OpenAI 兼容端点可不传，默认 'openai'
 });
-const llm = createLLMClient(snap);
 
 // ② 拿工具
 const registry = createToolRegistry();
@@ -101,7 +102,10 @@ const result = await loop.run();
 console.log(result.finishReason, result.rounds);
 ```
 
-3 行配 LLM，1 行拿工具，`createAgentLoop()` 帮你处理 LLM 调用、tool_calls、工具执行和观察结果回灌。想要多 agent 组队、共享黑板、契约对齐？往下看各能力详解。
+`createLLMClientFromConfig()` 一行接上任意 LLM，直接传 `apiKey` / `baseUrl` / `model`。
+`createAgentLoop()` 帮你处理 LLM 调用、tool_calls、工具执行和观察结果回灌。想要多 agent 组队、共享黑板、契约对齐？往下看各能力详解。
+
+> **高级用法**：如果你需要动态管理多个模型，可以用 `getModelManager().createRuntimeSnapshot()` + `createLLMClient(snapshotId)`，详见 [API 参考](./api-reference.md)。
 
 ## 文档索引
 

@@ -102,6 +102,55 @@ const text = contentToPlainText(response.content);
 
 用于替代手写 `generateContent` / `tool_calls` / `registry.execute` / tool result 回灌样板。
 
+**参数说明：**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `llm` | `LLMClient` | ✓ | — | LLM 客户端，由 `createLLMClientFromConfig()` 或 `createLLMClient()` 创建 |
+| `registry` | `ToolRegistry` | ✓ | — | 工具注册表，由 `createToolRegistry()` 创建 |
+| `messages` | `ChatMessage[]` | ✓ | — | 初始消息数组（通常含 system + user） |
+| `model` | `string` | ✓ | — | 模型名或 snapshot id，与创建 LLM 客户端时一致 |
+| `tools` | `ToolDefinition[]` | ✗ | `registry.getDefinitions()` | 显式工具列表，不传则用注册表全部工具 |
+| `toolNames` | `string[]` | ✗ | — | 工具白名单，仅当 `tools` 未传时生效 |
+| `toolContext` | `ToolContext` | ✗ | — | 工具执行上下文（见下方说明） |
+| `maxRounds` | `number` | ✗ | `10` | 最大循环轮次 |
+| `maxTokens` | `number` | ✗ | — | 每轮 LLM 调用的 max_tokens |
+| `done` | `(event) => boolean` | ✗ | — | 完成判定函数。不传则跑到 LLM 不再调工具或达到 maxRounds |
+| `hooks` | `AgentLoopHooks` | ✗ | — | 回调钩子：`onThinking`/`onMessage`/`onToolCall`/`onToolResult`/`onRound` |
+| `signal` | `AbortSignal` | ✗ | — | 中断信号 |
+
+**`done` predicate 说明：**
+
+- **传了 `done`**：每轮 LLM 响应后调用，返回 `true` 则结束循环（`finishReason: 'done'`）。
+- **不传 `done`**：循环在 LLM 不再调用工具时自动结束（`finishReason: 'no_tool_call'`），或达到 `maxRounds`（`finishReason: 'max_rounds'`）。
+- 大多数场景不需要 `done`——让 agent 自己决定何时停。
+
+**`toolContext` 结构：**
+
+```ts
+interface ToolContext {
+  workspace?: string;           // 工作目录，文件操作工具的根路径
+  sessionId?: string;           // 会话 ID
+  agentId?: string;             // Agent ID
+  permissionContext?: {         // 权限上下文（见下方说明）
+    mode: 'strict' | 'dev' | 'networked' | 'yolo';
+  };
+}
+```
+
+**`permissionContext.mode` 权限模式：**
+
+| 模式 | 说明 | 适用场景 |
+|---|---|---|
+| `'yolo'` | 全部允许，无沙箱限制 | 开发/测试/教学，agent 可自由执行 shell、网络请求、文件操作 |
+| `'dev'` | 允许本地操作，网络受限 | 本地开发，允许 shell 和文件操作但限制网络 |
+| `'networked'` | 允许白名单网络访问 | 生产环境，需要指定 `allowedHosts` |
+| `'strict'` | 最严格，需要逐工具授权 | 高安全要求环境 |
+
+> **新手建议**：开发阶段用 `'yolo'`，生产部署用 `'strict'` 或 `'dev'`。
+
+完整示例：
+
 ```ts
 const loop = createAgentLoop({
   llm,
@@ -112,11 +161,28 @@ const loop = createAgentLoop({
     workspace: process.cwd(),
     permissionContext: { mode: 'yolo' },
   },
-  done: ({ text }) => text.includes('DONE'),
-  maxRounds: 8,
+  maxRounds: 10,
+  // done 可不传——agent 自己决定何时停
+  hooks: {
+    onToolCall: ({ toolCall }) => console.log(`调用工具: ${toolCall.function.name}`),
+    onToolResult: ({ result }) => console.log(`工具结果: ${result.success ? '✓' : '✗'}`),
+  },
 });
 
 const result: AgentLoopResult = await loop.run();
+console.log(result.finishReason, result.rounds);
+```
+
+**`AgentLoopResult` 返回值：**
+
+```ts
+interface AgentLoopResult {
+  messages: ChatMessage[];      // 完整对话历史（含工具调用和结果）
+  rounds: number;                // 实际执行的轮次
+  finishReason: 'done' | 'no_tool_call' | 'max_rounds' | 'aborted' | 'error';
+  lastResponse?: ChatResponse;   // 最后一轮 LLM 响应
+  error?: unknown;               // 如果出错
+}
 ```
 
 应用仍应自己决定 prompt、完成标记、报告格式和错误退避策略。
@@ -125,7 +191,51 @@ const result: AgentLoopResult = await loop.run();
 
 ## 3. LLM
 
-### `createLLMClient(modelOrProvider?)`
+### `createLLMClientFromConfig(config)` — 推荐，一行接上 LLM
+
+直接传 `apiKey` / `baseUrl` / `model`，无需配置文件或 ModelManager。这是最简单的 LLM 接入方式。
+
+```ts
+import { createLLMClientFromConfig } from '@lingxiao-office/sdk';
+
+const llm = createLLMClientFromConfig({
+  apiKey: 'sk-...',
+  baseUrl: 'https://api.anthropic.com',
+  model: 'claude-opus-4-8',
+  provider: 'anthropic', // 可选，默认 'openai'（OpenAI 兼容端点）
+});
+
+const response = await llm.generateContent({
+  model: 'claude-opus-4-8',
+  messages: [{ role: 'user', content: '用一句话介绍凌霄 SDK。' }],
+  maxTokens: 512,
+});
+
+console.log(response.content);
+```
+
+**参数说明：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `apiKey` | `string` | ✓ | API Key |
+| `baseUrl` | `string` | ✓ | API Base URL，如 `https://api.anthropic.com` 或 `https://api.openai.com/v1` |
+| `model` | `string` | ✓ | 实际发送给 API 的模型名，如 `claude-opus-4-8` 或 `gpt-4o` |
+| `provider` | `'openai' \| 'anthropic'` | ✗ | Provider 类型，默认 `'openai'`。Anthropic 原生端点用 `'anthropic'`，OpenAI 兼容端点（含第三方中转）用 `'openai'` |
+
+> **provider 怎么选？**
+> - `anthropic`：直连 Anthropic 官方 API（`https://api.anthropic.com`），使用 Anthropic Messages API 格式
+> - `openai`：OpenAI 兼容端点（`https://api.openai.com/v1` 或任何兼容端点），使用 Chat Completions 格式
+> - 大多数第三方中转/聚合服务（如 OneAPI、OpenRouter）用 `'openai'`
+
+`ChatResponse.content` 的类型是 `MessageContent`，可能是字符串，也可能是结构化 content parts。推荐用 `contentToPlainText()` 统一提取文本：
+
+```ts
+import { contentToPlainText } from '@lingxiao-office/sdk';
+const text = contentToPlainText(response.content);
+```
+
+### `createLLMClient(modelOrProvider?)` — 高级，通过配置或 snapshot 接入
 
 ```ts
 function createLLMClient(
@@ -138,25 +248,23 @@ function createLLMClient(
 - 参数通常传模型 id 或 runtime snapshot id。
 - 不传参数时会读取 SDK 配置中的 `llm.leader_model`；若未配置会抛错。
 
-运行时直连模型网关的最小示例：
+通过 ModelManager 创建 runtime snapshot 的方式（适合动态管理多个模型）：
 
 ```ts
 import { createLLMClient } from '@lingxiao-office/sdk';
 import { getModelManager } from '@lingxiao-office/sdk/config/ModelManager.js';
 
-const model = getModelManager().createRuntimeSnapshot('anthropic', 'claude-opus-4-8', {
+const snapshotId = getModelManager().createRuntimeSnapshot('anthropic', 'claude-opus-4-8', {
   apiKey: process.env.LX_API_KEY!,
   baseUrl: process.env.LX_BASE_URL ?? 'http://127.0.0.1:8080',
 });
 
-const llm = createLLMClient(model);
+const llm = createLLMClient(snapshotId);
 const response = await llm.generateContent({
-  model,
+  model: snapshotId,
   messages: [{ role: 'user', content: '用一句话介绍凌霄 SDK。' }],
   maxTokens: 512,
 });
-
-console.log(response.content);
 ```
 
 `createRuntimeSnapshot()` 返回的是 snapshot id 字符串，不是 snapshot 对象；将这个字符串传给 `createLLMClient()` 和 `generateContent({ model })`。

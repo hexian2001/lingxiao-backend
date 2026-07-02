@@ -29,7 +29,8 @@ export * from './core/TaskBoard.js';
 export { SessionManager, type SessionState } from './core/SessionManager.js';
 
 // 导出 LLM 模块
-export { LLMClientManager, createLLMClient } from './llm/Client.js';
+export { LLMClientManager, createLLMClient, createLLMClientFromConfig } from './llm/Client.js';
+export type { LLMConnectionConfig } from './llm/Client.js';
 export type { ContentGenerator, ContentGeneratorConfig, GenerateContentParams, StreamEvent, CountTokensParams, CountTokensResult } from './llm/ContentGenerator.js';
 export type { ChatMessage, ChatResponse, LLMClient, StreamCallbacks, ToolDefinition, ToolCall, TokenUsage as LLMTokenUsage, ModelCapability } from './llm/types.js';
 

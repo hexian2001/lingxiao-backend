@@ -12,15 +12,23 @@ npm install @lingxiao-office/sdk
 
 ```ts
 import {
-  contentToPlainText,
   createAgentLoop,
-  createLLMClient,
+  createLLMClientFromConfig,
   createToolRegistry,
 } from '@lingxiao-office/sdk';
 
-const llm = createLLMClient(runtimeSnapshot);
+// ① 接上 LLM — 直接传 apiKey / baseUrl / model，无需配置文件
+const llm = createLLMClientFromConfig({
+  apiKey: 'sk-...',
+  baseUrl: 'https://api.anthropic.com',
+  model: 'claude-opus-4-8',
+  provider: 'anthropic',  // OpenAI 兼容端点可不传，默认 'openai'
+});
+
+// ② 拿工具 — 50+ 内置工具
 const registry = createToolRegistry();
 
+// ③ 跑循环 — 自动处理 LLM 调用 + tool_calls + 结果回灌
 const loop = createAgentLoop({
   llm,
   registry,
@@ -43,7 +51,8 @@ const result = await loop.run();
 
 | 能力 | 入口 | 说明 |
 |---|---|---|
-| LLM 客户端 | `createLLMClient()` | 接 Anthropic/OpenAI 兼容端点，内置 thinking、重试、token 计数 |
+| LLM 客户端 | `createLLMClientFromConfig({ apiKey, baseUrl, model })` | 一行接上任意 LLM，直接传配置，无需 settings.json |
+| LLM 客户端（高级） | `createLLMClient(snapshotId)` | 通过 ModelManager 创建 runtime snapshot，适合动态模型管理 |
 | 工具系统 | `createToolRegistry()` | 50+ 内置工具（shell/http/file/code_search/memory/...） |
 | Agent 循环 | `createAgentLoop()` | 封装 LLM 调用 + tool_calls 执行 + 结果回灌 + done 判断 |
 | 文本提取 | `contentToPlainText()` | 把 LLM 返回统一转成纯文本 |
@@ -67,10 +76,10 @@ import { AgentCore } from '@lingxiao-office/sdk/agents/runtime/AgentCore.js';
 
 ## 文档
 
-- [完整文档](https://github.com/lingxiao-office/lingxiao-backend/tree/main/docs)
-- [API Reference](https://github.com/lingxiao-office/lingxiao-backend/blob/main/docs/api-reference.md)
-- [Team / Blackboard / DAG](https://github.com/lingxiao-office/lingxiao-backend/blob/main/docs/team-blackboard-dag.md)
-- [Pentest Agent 教学项目](https://github.com/lingxiao-office/lingxiao-backend/tree/main/examples/pentest-agent)
+- [完整文档](https://github.com/hexian2001/lingxiao-office-sdk/tree/main/docs)
+- [API Reference](https://github.com/hexian2001/lingxiao-office-sdk/blob/main/docs/api-reference.md)
+- [Team / Blackboard / DAG](https://github.com/hexian2001/lingxiao-office-sdk/blob/main/docs/team-blackboard-dag.md)
+- [Pentest Agent 教学项目](https://github.com/hexian2001/lingxiao-office-sdk/tree/main/examples/pentest-agent)
 
 ## License
 

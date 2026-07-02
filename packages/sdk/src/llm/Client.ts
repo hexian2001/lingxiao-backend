@@ -221,4 +221,43 @@ export function createLLMClient(modelOrProvider?: string | 'openai' | 'anthropic
   return new LLMClientManager(modelOrProvider);
 }
 
+/**
+ * LLM 连接配置 — 直接传 apiKey / baseUrl / model，无需 settings.json。
+ */
+export interface LLMConnectionConfig {
+  /** API Key */
+  apiKey: string;
+  /** API Base URL，如 https://api.anthropic.com 或 https://api.openai.com/v1 */
+  baseUrl: string;
+  /** 实际发送给 API 的模型名，如 claude-opus-4-8 或 gpt-4o */
+  model: string;
+  /** Provider 类型，默认 'openai'（OpenAI 兼容端点）；Anthropic 原生端点用 'anthropic' */
+  provider?: 'openai' | 'anthropic';
+}
+
+/**
+ * 从纯配置创建 LLM 客户端 — 一行接上任意 LLM，无需 settings.json 或 ModelManager。
+ *
+ * 这是最简单的 LLM 接入方式：直接传 apiKey / baseUrl / model，
+ * 内部自动创建 runtime snapshot，开发者不需要了解 ModelManager 或配置文件。
+ *
+ * @example
+ * ```ts
+ * const llm = createLLMClientFromConfig({
+ *   apiKey: 'sk-...',
+ *   baseUrl: 'https://api.anthropic.com',
+ *   model: 'claude-opus-4-8',
+ *   provider: 'anthropic',
+ * });
+ * ```
+ */
+export function createLLMClientFromConfig(config: LLMConnectionConfig): LLMClientManager {
+  const provider = config.provider ?? 'openai';
+  const snapshotId = getModelManager().createRuntimeSnapshot(provider, config.model, {
+    apiKey: config.apiKey,
+    baseUrl: config.baseUrl,
+  });
+  return new LLMClientManager(snapshotId);
+}
+
 export default LLMClientManager;
