@@ -145,6 +145,37 @@ const result = await loop.run();
 
 业务 prompt、完成标记、报告格式、错误退避策略仍应留在应用层。
 
+### 何时启用 `stream: true`
+
+当你的 LLM 网关**只支持 SSE 流式响应**时（例如某些本地代理或自建 inference gateway 不提供非流式 `/v1/chat/completions`），需要设置 `stream: true`：
+
+```ts
+const loop = createAgentLoop({
+  // ...其他参数
+  stream: true,  // SDK 自动切换到 generateContentWithCallbacks 路径
+});
+```
+
+默认 `stream: false` 使用标准 `generateContent`，适用于 Anthropic 官方 API、OpenAI 官方 API 及大多数兼容端点。
+
+### 交互式 REPL 模式最小结构
+
+`createAgentLoop` 是无状态的——每次调用处理一个完整循环。要实现多轮交互式聊天，只需在外层维护 `messages` 历史：
+
+```ts
+let messages = [{ role: 'system', content: '你是一个助手。' }];
+
+// 每轮用户输入后：
+// 1. 把 user 消息追加到 messages
+// 2. 新建 loop，传入 messages
+// 3. 用 result.messages 替换外层 messages
+const loop = createAgentLoop({ llm, registry, model, messages });
+const result = await loop.run();
+messages = result.messages;  // 关键：历史由 loop 返回
+```
+
+完整可运行示例见 [`examples/interactive-chat/`](../examples/interactive-chat/)。
+
 > **高级用法**：如果你需要动态管理多个模型，可用 `getModelManager().createRuntimeSnapshot()` + `createLLMClient(snapshotId)`，详见 [API 参考](./api-reference.md)。
 
 ## Web API：服务入口导入

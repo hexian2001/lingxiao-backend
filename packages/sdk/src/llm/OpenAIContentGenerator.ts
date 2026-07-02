@@ -269,7 +269,7 @@ export class OpenAIContentGenerator implements ContentGenerator {
     const request = this.buildRequest(params, false);
     const callbacks: StreamCallbacks | undefined = undefined;
 
-    // 重试收口 (2026-05-29)：generator 层只做「单次 attempt + CircuitBreaker 记账 + 分类」，
+    // 重试收口 (2026-05-29)：generator 层只做「单次 attempt + CircuitBreaker 记账 + 分类」,
     // maxRetries=0。重试/backoff/recycle 的唯一权威是 LlmGuard。
     //   旧实现 maxRetries=LLM_MAX_RETRIES(5) 会与外层 LlmGuard(5×) 叠成双层重试（最坏 25 次、
     //   两套 backoff 曲线），这是用户报「重试逻辑乱七八糟」的根因之一。流式路径
@@ -277,35 +277,67 @@ export class OpenAIContentGenerator implements ContentGenerator {
     //   注：保留 retryProviderOperation 外壳（maxRetries=0）是为了让不经 LlmGuard 的直接调用方
     //   （多数带 try/catch fallback）仍享有 CircuitBreaker 快速熔断；唯一无 fallback 的
     //   WikiGenerator.generateOutline 已在调用方包了 LlmGuard。
-    const result = await retryProviderOperation({
-      maxRetries: 0,
-      logPrefix: t('llm.request_failed'),
-      classify: (error) => classifyLLMError(error, { provider: 'openai', model: params.model }),
-      callbacks,
-      providerKey: `${this.baseUrl}::${params.model}`,
-      operation: async () => {
-        const heartbeat = createHeartbeatTimer({ onProgress: undefined });
-        try {
-          const response = await this.client.chat.completions.create(
-            request.params as ChatCompletionCreateParamsNonStreaming,
-            { timeout: this.timeoutMs, signal: params.signal },
-          );
-          heartbeat.clear();
+    let result: ChatResponse;
+    try {
+      result = await retryProviderOperation({
+        maxRetries: 0,
+        logPrefix: t('llm.request_failed'),
+        classify: (error) => classifyLLMError(error, { provider: 'openai', model: params.model }),
+        callbacks,
+        providerKey: `${this.baseUrl}::${params.model}`,
+        operation: async () => {
+          const heartbeat = createHeartbeatTimer({ onProgress: undefined });
+          try {
+            const response = await this.client.chat.completions.create(
+              request.params as ChatCompletionCreateParamsNonStreaming,
+              { timeout: this.timeoutMs, signal: params.signal },
+            );
+            heartbeat.clear();
 
-          return this.parseNonStreamingResponse(response, params.model);
-        } catch (error) {
-          heartbeat.clear();
-          throw error;
-        }
-      },
-    });
+            return this.parseNonStreamingResponse(response, params.model);
+          } catch (error) {
+            heartbeat.clear();
+            throw error;
+          }
+        },
+      });
+    } catch (err) {
+      // SSE-only gateway fallback: provider returned streaming SSE for non-streaming request.
+      // Some gateways (e.g. certain proxy/provider frontends) only support SSE streaming and
+      // return an SSE event stream even for non-streaming requests, causing the OpenAI SDK
+      // to deliver an empty/undefined body to parseNonStreamingResponse. When that specific
+      // error is detected, transparently fall back to the streaming path so callers never
+      // need to know the provider is SSE-only.
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isEmptyNonStreamingError =
+        errMsg.includes('Empty non-streaming response');
+
+      if (isEmptyNonStreamingError) {
+        result = await this.generateContentWithCallbacks(params);
+      } else {
+        throw err;
+      }
+    }
 
     // MAX_TOKENS 升级
+    return this.escalateIfTruncated(result, request, params);
+  }
+
+  /**
+   * was_output_truncated 升级 helper — 非流式和 fallback 路径共用。
+   *
+   * 当 finish_reason === 'length'（输出被 max_tokens 截断）时，尝试用更大的
+   * max_tokens 非流式重试一次（tryEscalate）。升级失败则返回原始结果。
+   */
+  private async escalateIfTruncated(
+    result: ChatResponse,
+    request: PipelineRequest,
+    params: GenerateContentParams,
+  ): Promise<ChatResponse> {
     if (result.was_output_truncated) {
       const escalated = await this.tryEscalate(request, params);
       if (escalated) return escalated;
     }
-
     return result;
   }
 
@@ -532,6 +564,8 @@ export class OpenAIContentGenerator implements ContentGenerator {
 
     // 流式路径的 escalation：如果输出被截断且有 tool_calls（参数可能不完整），
     // 用非流式 escalated max_tokens 重试。纯文本截断不 escalate（可继续对话）。
+    // 注意：此处的 tool_calls 条件是流式路径特有的（tool_call JSON 半截不可信），
+    // 与 generateContent / escalateIfTruncated 的无条件 escalation 不同。
     if (result.was_output_truncated && result.tool_calls?.length) {
       const request = this.buildRequest(params, false);
       const escalated = await this.tryEscalate(request, params);

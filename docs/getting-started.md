@@ -107,6 +107,73 @@ console.log(result.finishReason, result.rounds);
 
 > **高级用法**：如果你需要动态管理多个模型，可以用 `getModelManager().createRuntimeSnapshot()` + `createLLMClient(snapshotId)`，详见 [API 参考](./api-reference.md)。
 
+## 交互式多轮对话
+
+`createAgentLoop` 每次调用处理一个完整的 reason → act → observe 循环。要实现 REPL 式交互式聊天，关键思路是：**在外层累积 `messages` 历史，每轮用户输入后新建一个 loop，把上一轮的 `result.messages` 替换回去。**
+
+```typescript
+import * as readline from 'node:readline';
+import { createAgentLoop, createLLMClientFromConfig, createToolRegistry, contentToPlainText } from '@lingxiao-office/sdk';
+
+const llm = createLLMClientFromConfig({
+  apiKey: process.env.LX_API_KEY ?? 'sk-...',
+  baseUrl: process.env.LX_BASE_URL ?? 'https://api.openai.com/v1',
+  model: process.env.LX_MODEL ?? 'gpt-4o',
+});
+
+const registry = createToolRegistry();
+
+// 外层维护完整对话历史
+let messages: any[] = [
+  { role: 'system', content: '你是一个能调用工具的助手。' },
+];
+
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+async function chat() {
+  rl.question('你 > ', async (input) => {
+    if (input.trim() === 'exit') { rl.close(); return; }
+
+    // 把用户输入追加到历史，然后新建 loop
+    messages.push({ role: 'user', content: input });
+
+    const loop = createAgentLoop({
+      llm,
+      registry,
+      model: process.env.LX_MODEL ?? 'gpt-4o',
+      messages,                // 传入累积的历史
+      toolContext: { workspace: process.cwd(), permissionContext: { mode: 'yolo' } },
+      maxRounds: 8,
+      hooks: {
+        onToolCall: ({ toolCall }) => console.log(`  [tool] ${toolCall.function.name}`),
+        onRound: ({ text, toolCalls }) => {
+          if (text && toolCalls.length === 0) console.log(`AI > ${text}`);
+        },
+      },
+      // stream: true,  // 网关只支持 SSE 时启用
+    });
+
+    const result = await loop.run();
+
+    // 用 loop 返回的完整历史替换外层 messages
+    messages = result.messages;
+
+    chat(); // 继续下一轮
+  });
+}
+
+chat();
+```
+
+**要点：**
+
+- `messages` 在外层用 `let` 声明，每轮结束后用 `result.messages` 替换——loop 内部会追加 assistant 回复和 tool 结果。
+- 每轮用户新输入后**新建**一个 `createAgentLoop`，传入累积的 `messages`。loop 本身是无状态的。
+- `hooks.onRound` 在每轮 LLM 响应后触发，`toolCalls.length === 0` 表示 agent 不再调工具、给出最终回复。
+- 如果你的网关只支持 SSE 流式响应，取消 `stream: true` 注释即可，SDK 会自动切换到 `generateContentWithCallbacks` 路径。
+
+> 完整可运行示例见 [`examples/interactive-chat/`](../examples/interactive-chat/)。
+
 ## 文档索引
 
 - [文档首页](./README.md) — 文档地图和推荐阅读路径

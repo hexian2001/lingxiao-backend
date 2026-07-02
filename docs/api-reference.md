@@ -118,6 +118,7 @@ const text = contentToPlainText(response.content);
 | `done` | `(event) => boolean` | ✗ | — | 完成判定函数。不传则跑到 LLM 不再调工具或达到 maxRounds |
 | `hooks` | `AgentLoopHooks` | ✗ | — | 回调钩子：`onThinking`/`onMessage`/`onToolCall`/`onToolResult`/`onRound` |
 | `signal` | `AbortSignal` | ✗ | — | 中断信号 |
+| `stream` | `boolean` | ✗ | `false` | 强制使用流式模式（SSE）。当网关只支持流式响应时设为 `true`，SDK 会自动切换到 `generateContentWithCallbacks` 路径 |
 
 **`done` predicate 说明：**
 
