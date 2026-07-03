@@ -174,6 +174,65 @@ chat();
 
 > 完整可运行示例见 [`examples/interactive-chat/`](../examples/interactive-chat/)。
 
+## createAgentLoop 的局限性与升级路径
+
+### 无自动上下文压缩
+
+`createAgentLoop` 是轻量 facade，**不包含**自动上下文压缩。每轮对话的 messages 会持续累积，当总 token 超过模型 context window 时会报错。
+
+**应对方法（在交互式 REPL 中）：**
+
+```typescript
+// 简单策略：超过 N 轮时只保留 system + 最近 K 条消息
+const MAX_HISTORY = 20;
+if (messages.length > MAX_HISTORY + 1) {
+  messages = [
+    messages[0], // 保留 system prompt
+    ...messages.slice(-(MAX_HISTORY)),
+  ];
+}
+```
+
+> 需要自动压缩、session 持久化和完整生命周期管理，使用 `SessionManager`（见下文）。
+
+### 记忆工具共享 `~/.lingxiao/memory/`
+
+`createToolRegistry()` 内置 `memory` / `memory_read` / `memory_write` 工具，读写路径为 `~/.lingxiao/memory/`。**多个进程或多个 loop 实例共用同一目录**，天然跨进程共享。
+
+```typescript
+// Agent A 写入
+await registry.execute('memory', {
+  action: 'save',
+  name: 'project-notes',
+  content: '发现了一个 API 性能瓶颈……',
+  type: 'project',
+  description: '性能分析笔记',
+  scope: 'user',
+}, { workspace: process.cwd() });
+
+// Agent B（另一个进程）读取同一条记忆
+const result = await registry.execute('memory_read', {
+  action: 'load',
+  name: 'project-notes',
+  scope: 'user',
+}, { workspace: process.cwd() });
+```
+
+配置和 skill 定义同样从 `~/.lingxiao/` 加载（模块导入时自动读取 `settings.json`）。
+
+### 何时从 `createAgentLoop` 升级到 `SessionManager`
+
+| 场景 | 推荐 |
+|------|------|
+| 单任务、脚本、中短对话（< 50 轮） | `createAgentLoop` |
+| 交互式 REPL，需要手动管理历史 | `createAgentLoop` + 手动截断 |
+| 长期对话、需要自动压缩上下文 | `SessionManager` |
+| 多 Agent 协作（Team 模式） | `SessionManager` |
+| 需要持久化 session 到数据库 | `SessionManager` |
+| 需要 TaskBoard DAG、agent 生命周期管理 | `SessionManager` |
+
+`SessionManager` 的装配成本更高（需要 `DatabaseManager`、`EventEmitter`、workspace），详见 [API 参考 § SessionManager](./api-reference.md#6-sessionmanager)。
+
 ## 文档索引
 
 - [文档首页](./README.md) — 文档地图和推荐阅读路径
