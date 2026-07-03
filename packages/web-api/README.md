@@ -68,9 +68,9 @@ lingxiao-web-api
 
 ## 文档
 
-- [完整文档](https://github.com/hexian2001/lingxiao-office-web-api/tree/main/docs)
-- [安装、导入与扩展开发](https://github.com/hexian2001/lingxiao-office-web-api/blob/main/docs/package-consumption.md)
-- [NPM 发布指南](https://github.com/hexian2001/lingxiao-office-web-api/blob/main/docs/release-npm.md)
+- [完整文档](https://github.com/hexian2001/lingxiao-backend/tree/main/docs)
+- [安装、导入与扩展开发](https://github.com/hexian2001/lingxiao-backend/blob/main/docs/package-consumption.md)
+- [NPM 发布指南](https://github.com/hexian2001/lingxiao-backend/blob/main/docs/release-npm.md)
 
 ## License
 

@@ -1,6 +1,6 @@
-# @lingxiao-office/sdk API Reference
+# @lingxiao-office/sdk & @lingxiao-office/web-api API Reference
 
-本文只记录当前 SDK 源码中已确认存在的导出、子路径和工具入口。若某能力不是主入口稳定导出，会明确标注为“子路径高级 API”或“推荐通过工具层/SessionManager 使用”。
+本文只记录当前 SDK / Web API 源码中已确认存在的导出、子路径和工具入口。若某能力不是主入口稳定导出，会明确标注为“子路径高级 API”或“推荐通过工具层/SessionManager 使用”。
 
 ## 1. 导入边界
 

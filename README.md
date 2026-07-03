@@ -24,8 +24,8 @@ npm install -g @lingxiao-office/web-api
 ### 从源码编译开发
 
 ```bash
-git clone https://github.com/hexian2001/lingxiao-office-sdk.git
-cd lingxiao-office-sdk
+git clone https://github.com/hexian2001/lingxiao-backend.git
+cd lingxiao-backend
 npm install
 npm run build
 ```
@@ -39,8 +39,8 @@ npm pack ./packages/sdk
 npm pack ./packages/web-api
 
 cd /path/to/your-app
-npm install /path/to/lingxiao-office-sdk-1.0.1.tgz \
-  /path/to/lingxiao-office-web-api-1.0.1.tgz
+npm install /path/to/lingxiao-office-sdk-1.0.8.tgz \
+  /path/to/lingxiao-office-web-api-1.0.8.tgz
 ```
 
 ### 源码联调开发（npm link）

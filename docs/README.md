@@ -1,8 +1,11 @@
-# @lingxiao-office/sdk 文档
+# Lingxiao Backend 文档
 
-`@lingxiao-office/sdk` 是凌霄后端拆分后的可复用 Agent 引擎包：它包含 LLM 客户端、工具系统、Agent loop、会话编排、Team 协作、Blackboard 知识图和 TaskBoard DAG。SDK 不依赖 Web API，可以嵌入 CLI、服务端、教学项目或你自己的产品线。
+凌霄后端 monorepo 包含两个可独立消费的 npm 包：
 
-> 本版文档聚焦外部开发者最常用且已在源码中确认的能力：LLM、ToolRegistry、Agent loop、SessionManager、Team、Blackboard、TaskBoard DAG 与 Contracts。
+- **`@lingxiao-office/sdk`**：可复用 Agent 引擎，包含 LLM 客户端、工具系统、Agent loop、会话编排、Team 协作、Blackboard 知识图和 TaskBoard DAG。SDK 不依赖 Web API，可以嵌入 CLI、服务端、教学项目或你自己的产品线。
+- **`@lingxiao-office/web-api`**：基于 SDK 的 HTTP / ACP / SSE / WebSocket 服务层，包含可扩展的 Web API extension surface。
+
+> 本版文档聚焦外部开发者最常用且已在源码中确认的能力：LLM、ToolRegistry、Agent loop、SessionManager、Team、Blackboard、TaskBoard DAG、Web API extension 与 Contracts。
 
 ## 文档地图
 
