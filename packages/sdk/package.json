@@ -1,6 +1,6 @@
 {
   "name": "@lingxiao-office/sdk",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "凌霄剑域可复用后端引擎 SDK：编排内核、Agent 运行时、LLM 客户端、工具系统、记忆系统。不依赖 Web API，可直接嵌入任意产品线。",
   "license": "MIT",
   "keywords": [
@@ -15,13 +15,14 @@
     "lingxiao"
   ],
   "author": "Lingxiao Office",
-  "homepage": "https://github.com/hexian2001/lingxiao-office-sdk",
+  "homepage": "https://github.com/hexian2001/lingxiao-backend/tree/main/packages/sdk",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hexian2001/lingxiao-office-sdk.git"
+    "url": "git+https://github.com/hexian2001/lingxiao-backend.git",
+    "directory": "packages/sdk"
   },
   "bugs": {
-    "url": "https://github.com/hexian2001/lingxiao-office-sdk/issues"
+    "url": "https://github.com/hexian2001/lingxiao-backend/issues"
   },
   "type": "module",
   "main": "dist/index.js",

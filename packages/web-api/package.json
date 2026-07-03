@@ -1,6 +1,6 @@
 {
   "name": "@lingxiao-office/web-api",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "凌霄剑域 Web API：基于 @lingxiao-office/sdk 的 HTTP/ACP/SSE/WebSocket 服务层，供各产品线通过 Web 协议消费后端引擎。",
   "license": "MIT",
   "keywords": [
@@ -15,13 +15,14 @@
     "lingxiao"
   ],
   "author": "Lingxiao Office",
-  "homepage": "https://github.com/hexian2001/lingxiao-office-web-api",
+  "homepage": "https://github.com/hexian2001/lingxiao-backend/tree/main/packages/web-api",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hexian2001/lingxiao-office-web-api.git"
+    "url": "git+https://github.com/hexian2001/lingxiao-backend.git",
+    "directory": "packages/web-api"
   },
   "bugs": {
-    "url": "https://github.com/hexian2001/lingxiao-office-web-api/issues"
+    "url": "https://github.com/hexian2001/lingxiao-backend/issues"
   },
   "type": "module",
   "main": "dist/index.js",
